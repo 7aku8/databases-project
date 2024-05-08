@@ -1,0 +1,22 @@
+version: "3.8"
+
+services:
+  databases_project_db:
+    container_name: databases_project_db
+    image: postgres:16.2-alpine
+    restart: "unless-stopped"
+    environment:
+      TZ: 'GMT'
+      PGTZ: 'GMT'
+      POSTGRES_USER: test_user
+      POSTGRES_PASSWORD: test_password
+      POSTGRES_DB: databases_project
+    ports:
+      - "5566:5432"
+    volumes:
+      - databases-project-db:/var/lib/postgresql/data
+
+volumes:
+  databases-project-db:
+    name: databases_project_database
+    driver: local
