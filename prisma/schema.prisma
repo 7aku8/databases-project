@@ -1,21 +1,163 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [uuidOssp(map: "uuid-ossp"), citext(map: "citext")]
 }
 
-model Sample {
-  id        String   @id @default(cuid())
-  name      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+enum BreedingCycleStatus {
+  ACTIVE
+  ENDED
+}
+
+enum ConnectionStatus {
+  CONNECTED
+  DISCONNECTED
+}
+
+enum AuthorizationStatus {
+  STARTED
+  SUCCESSFUL
+  FAILED
+}
+
+model Weight {
+  id                    String                @id @default(uuid()) @map("id")
+  serialNo              String                @unique @map("serial_no") @db.Citext
+  manufactureDate       DateTime?             @map("manufacture_date")
+  connectionStatus      ConnectionStatus?     @map("connection_status")
+  lastLocationId        String?               @unique @map("last_location_id")
+  activeBreedingCycleId String?               @map("active_breeding_cycle_id")
+  createdAt             DateTime              @map("created_at")
+  location              Location?             @relation(name: "LastLocation", fields: [lastLocationId], references: [id])
+  breedingCycle         BreedingCycle?        @relation(fields: [activeBreedingCycleId], references: [id])
+  userWeights           UserWeight[]
+  measurements          Measurement[]
+  dailyStats            DailyStats[]
+  breedingCycleWeights  BreedingCycleWeight[]
+  locations             Location[]            @relation(name: "WeightLocations")
+
+  @@map("weight")
+}
+
+model Location {
+  id         String               @id @default(uuid()) @map("id")
+  weightId   String?              @map("weight_id")
+  coordinate Unsupported("point")
+  address    String               @map("address") @db.VarChar(255)
+  createdAt  DateTime             @map("created_at")
+  isLast     Weight?              @relation(name: "LastLocation")
+  weight     Weight?              @relation(name: "WeightLocations", fields: [weightId], references: [id])
+
+  @@map("location")
+}
+
+model UserWeight {
+  weightId        String        @map("weight_id")
+  userId          String        @map("user_id")
+  authorizationId String        @map("authorization_id")
+  deletedAt       DateTime?     @map("deleted_at")
+  createdAt       DateTime      @map("created_at")
+  weight          Weight        @relation(fields: [weightId], references: [id])
+  user            User          @relation(fields: [userId], references: [id])
+  authorization   Authorization @relation(fields: [authorizationId], references: [id])
+
+  @@id([weightId, userId, authorizationId])
+  @@map("user_weight")
+}
+
+model Authorization {
+  id               String              @id @default(uuid()) @map("id")
+  status           AuthorizationStatus @default(STARTED) @map("status")
+  verificationCode String?             @map("verification_code") @db.VarChar(255)
+  attemptsLeft     Int                 @default(3) @map("attempts_left")
+  blocked          Boolean             @default(false) @map("blocked")
+  createdAt        DateTime            @map("created_at")
+  updatedAt        DateTime?           @map("updated_at")
+  userWeights      UserWeight[]
+
+  @@map("authorization")
+}
+
+model User {
+  id             String          @id @default(uuid()) @map("id")
+  externalId     String          @unique @default(uuid()) @map("external_id")
+  firstName      String          @map("first_name") @db.VarChar(50)
+  lastName       String          @map("last_name") @db.VarChar(50)
+  email          String          @unique @map("email") @db.Citext
+  phone          String          @unique @map("phone") @db.VarChar(50)
+  createdAt      DateTime        @map("created_at")
+  updatedAt      DateTime?       @map("updated_at")
+  userWeights    UserWeight[]
+  breedingCycles BreedingCycle[]
+
+  @@map("user")
+}
+
+model Measurement {
+  id                     String                  @id @default(uuid()) @map("id")
+  weightId               String                  @map("weight_id")
+  value                  Decimal                 @map("value") @db.Decimal(7, 2)
+  createdAt              DateTime                @map("created_at")
+  weight                 Weight                  @relation(fields: [weightId], references: [id])
+  dailyStatsMeasurements DailyStatsMeasurement[]
+
+  @@map("measurement")
+}
+
+model DailyStatsMeasurement {
+  measurementId String      @map("measurement_id")
+  dailyStatsId  String      @map("daily_stats_id")
+  valid         Boolean     @default(true) @map("valid")
+  measurement   Measurement @relation(fields: [measurementId], references: [id])
+  dailyStats    DailyStats  @relation(fields: [dailyStatsId], references: [id])
+
+  @@unique([dailyStatsId, measurementId])
+  @@map("daily_stats_measurement")
+}
+
+model DailyStats {
+  id                     String                  @id @default(uuid()) @map("id")
+  weightId               String                  @map("weight_id")
+  breedingCycleId        String                  @map("breeding_cycle_id")
+  averageWeight          Decimal                 @map("average_weight") @db.Decimal(7, 2)
+  createdAt              DateTime                @map("created_at")
+  weight                 Weight                  @relation(fields: [weightId], references: [id])
+  breedingCycle          BreedingCycle           @relation(name: "BreedingCycleDailyStats", fields: [breedingCycleId], references: [id])
+  isLast                 BreedingCycle?          @relation(name: "LastStats")
+  dailyStatsMeasurements DailyStatsMeasurement[]
+
+  @@map("daily_stats")
+}
+
+model BreedingCycleWeight {
+  breedingCycleId String        @map("breeding_cycle_id")
+  weightId        String        @map("weight_id")
+  createdAt       DateTime      @map("created_at")
+  breedingCycle   BreedingCycle @relation(fields: [breedingCycleId], references: [id])
+  weight          Weight        @relation(fields: [weightId], references: [id])
+
+  @@unique([breedingCycleId, weightId])
+  @@map("breeding_cycle_weight")
+}
+
+model BreedingCycle {
+  id                   String                @id @default(uuid()) @map("id")
+  userId               String                @map("user_id")
+  lastStatsId          String?               @unique @map("last_stats_id")
+  startDate            DateTime              @map("start_date")
+  endDate              DateTime?             @map("end_date")
+  status               BreedingCycleStatus   @default(ACTIVE) @map("status")
+  createdAt            DateTime              @map("created_at")
+  user                 User                  @relation(fields: [userId], references: [id])
+  lastStats            DailyStats?           @relation(name: "LastStats", fields: [lastStatsId], references: [id])
+  dailyStats           DailyStats[]          @relation(name: "BreedingCycleDailyStats")
+  breedingCycleWeights BreedingCycleWeight[]
+  weights              Weight[]
+
+  @@map("breeding_cycle")
 }
